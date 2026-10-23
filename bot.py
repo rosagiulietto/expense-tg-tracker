@@ -49,6 +49,9 @@ CATEGORY_KEYWORDS = {
         "aldi", "carrefour", "pasta", "pane", "latte", "frutta", "verdura",
         "spesa", "macelleria", "pescheria",
     ),
+    "Alcohol ": (
+        "birra", "vino", "drink",
+    ),
     "Food": (
         "caffe", "coffee", "pizza", "ristorante", "restaurant", "bar",
         "pranzo", "cena", "colazione", "gelato", "pasticceria", "delivery",
@@ -87,15 +90,17 @@ _AMOUNT_AT_START = re.compile(rf"^(?P<amount>{_AMOUNT})\s+(?P<item>.+)$")
 
 
 def authorized(update: Update) -> bool:
-    """Check that the message comes from an allowed Telegram user id."""
+    """
+    Check that the message comes from an allowed Telegram user id.
+    """
     user_id = update.effective_user.id if update.effective_user else None
     return user_id in ALLOWED_USER_IDS
 
 
 def parse_expense(text: str) -> tuple[str, float] | None:
     """
-    Parse a message like "Coffee 3.50", "3.50 Coffee" or "Milk 2 liters 3.50"
-    into (item, amount). Returns None if no valid amount is found.
+    Parse a message like "Coffee 3.50", "3.50 Coffee" or "Milk 2 liters 3.50" into (item, amount).
+    Returns None if no valid amount is found.
     """
     text = text.strip()
     match = _AMOUNT_AT_END.match(text) or _AMOUNT_AT_START.match(text)
@@ -115,19 +120,25 @@ def parse_expense(text: str) -> tuple[str, float] | None:
 
 
 def _format_timestamp(timestamp: str) -> str:
-    """Render a stored UTC ISO timestamp in the local timezone."""
+    """
+    Render a stored UTC ISO timestamp in the local timezone.
+    """
     dt = datetime.fromisoformat(timestamp).astimezone(db.LOCAL_TZ)
     return dt.strftime("%Y-%m-%d %H:%M")
 
 
 def _normalize(text: str) -> str:
-    """Lowercase and strip accents for keyword matching."""
+    """
+    Lowercase and strip accents for keyword matching.
+    """
     decomposed = unicodedata.normalize("NFKD", text.casefold())
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
 def guess_category(item: str) -> str:
-    """Return the first matching category for an item, or the default one."""
+    """
+    Return the first matching category for an item, or the default one.
+    """
     text = _normalize(item)
     for category, keywords in CATEGORY_KEYWORDS.items():
         for keyword in keywords:
@@ -137,7 +148,9 @@ def guess_category(item: str) -> str:
 
 
 def _parse_month_arg(args: list[str]) -> tuple[int, int] | None:
-    """Parse an optional YYYY-MM argument; default to the current local month."""
+    """
+    Parse an optional YYYY-MM argument; default to the current local month.
+    """
     now = datetime.now(db.LOCAL_TZ)
     if not args:
         return now.year, now.month
@@ -157,7 +170,9 @@ def _parse_month_arg(args: list[str]) -> tuple[int, int] | None:
 # ---------------------------------------------------------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/start - welcome message and instructions."""
+    """
+    /start - welcome message and instructions.
+    """
     if not authorized(update):
         return
     await update.message.reply_text(
@@ -165,16 +180,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Log an expense by simply typing:\n"
         "    <item> <amount>   e.g.  Coffee 3.50\n\n"
         "Available commands:\n"
-        "/summary - this month's total & category breakdown\n"
-        "/last [n] - view the last n transactions (default 5)\n"
-        "/delete [id] - remove an entry by its database id\n"
-        "/export - download all expenses as CSV\n"
+        "/summary          - this month's total & category breakdown\n"
+        "/last [n]         - view the last n transactions (default 5)\n"
+        "/delete [id]      - remove an entry by its database id\n"
+        "/export           - download all expenses as CSV\n"
         "/report [YYYY-MM] - chart for this month (or a specific one)"
     )
 
 
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/summary - this month's total spending and per-category breakdown."""
+    """
+    /summary - this month's total spending and per-category breakdown.
+    """
     if not authorized(update):
         return
     user_id = update.effective_user.id
@@ -192,7 +209,9 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/last [n] - view the last n recorded transactions."""
+    """
+    /last [n] - view the last n recorded transactions.
+    """
     if not authorized(update):
         return
     user_id = update.effective_user.id
@@ -221,7 +240,9 @@ async def last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/delete [id] - remove an erroneous entry by its database id."""
+    """
+    /delete [id] - remove an erroneous entry by its database id.
+    """
     if not authorized(update):
         return
     user_id = update.effective_user.id
@@ -240,7 +261,9 @@ async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/export - send all expenses as a CSV file."""
+    """
+    /export - send all expenses as a CSV file.
+    """
     if not authorized(update):
         return
     user_id = update.effective_user.id
@@ -274,7 +297,9 @@ async def export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/report [YYYY-MM] - chart of spending by category for a month."""
+    """
+    /report [YYYY-MM] - chart of spending by category for a month.
+    """
     if not authorized(update):
         return
     user_id = update.effective_user.id
@@ -299,7 +324,9 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def send_monthly_reports(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Job run on the 1st of each month: send the previous month's chart."""
+    """
+    Job run on the 1st of each month: send the previous month's chart.
+    """
     now = datetime.now(db.LOCAL_TZ)
     previous = now.replace(day=1) - timedelta(days=1)
 
@@ -320,7 +347,9 @@ async def send_monthly_reports(context: ContextTypes.DEFAULT_TYPE) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Parse plain-text messages like 'Coffee 3.50' and store the expense."""
+    """
+    Parse plain-text messages like 'Coffee 3.50' and store the expense.
+    """
     if not authorized(update):
         return
     user_id = update.effective_user.id
@@ -347,7 +376,9 @@ async def handle_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def unauthorized(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Silently ignore (or politely decline) messages from strangers."""
+    """
+    Silently ignore (or politely decline) messages from strangers.
+    """
     logger.warning(
         "Unauthorized access attempt from user_id=%s", update.effective_user.id
     )
