@@ -123,6 +123,17 @@ def get_last_expenses(n: int, user_id: int, db_path: str = DB_NAME) -> List[sqli
     return rows
 
 
+def get_all_expenses(user_id: int, db_path: str = DB_NAME) -> List[sqlite3.Row]:
+    """Return all expenses for the given user, oldest first (for CSV export)."""
+    conn = get_connection(db_path)
+    rows = conn.execute(
+        "SELECT * FROM expenses WHERE user_id = ? ORDER BY timestamp ASC, id ASC",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    return rows
+
+
 def delete_expense(expense_id: int, user_id: int, db_path: str = DB_NAME) -> bool:
     """Delete an expense by id for the given user. Returns True if a row was removed."""
     conn = get_connection(db_path)

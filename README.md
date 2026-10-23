@@ -9,8 +9,11 @@ text messages. Data is stored locally in SQLite — no external cloud services.
 ## Features
 
 - Log an expense by sending a plain message: `Coffee 3.50`
+- Automatic category tagging from item keywords (e.g. `Uber → Transport`)
 - Per-user data: every expense is tied to the sender's Telegram user id
-- Commands: `/start`, `/summary`, `/last [n]`, `/delete [id]`
+- Commands: `/start`, `/summary`, `/last [n]`, `/delete [id]`, `/export`, `/report`
+- CSV export of all expenses, Excel-friendly
+- Monthly spending chart on demand and automatically on the 1st of each month
 - Day/month totals computed in the `Europe/Rome` timezone
 - Database and schema are created automatically on first start
 - Optional weekly/daily backups with automatic pruning
@@ -21,6 +24,7 @@ text messages. Data is stored locally in SQLite — no external cloud services.
 .
 ├── bot.py                  # Telegram handlers and bot entrypoint
 ├── database.py             # SQLite schema and queries
+├── reports.py              # Monthly chart generation (matplotlib)
 ├── requirements.txt        # Pinned dependencies
 ├── .env.example            # Configuration template
 └── deploy/
@@ -78,9 +82,30 @@ python database.py
 | `/summary` | Current month total and per-category breakdown |
 | `/last 10` | Last 10 transactions |
 | `/delete 42` | Delete entry `#42` |
+| `/export` | Download all expenses as a CSV file |
+| `/report` | Chart of this month's spending by category |
+| `/report 2026-09` | Chart for a specific month |
 
 Multi-number descriptions are supported: the amount is taken from the start or
 the end of the message. Anything else in the middle is kept as the item name.
+
+### Auto-categorization
+
+Categories are assigned from keywords in the item name. The rules live in
+`CATEGORY_KEYWORDS` in `bot.py` and cover `Groceries`, `Food`, `Transport`,
+`Bills`, `Health`, `Shopping` and `Entertainment`, falling back to `General`.
+Matching is case-insensitive and accent-insensitive (`Caffè` matches `caffe`).
+Add or edit keywords in that dictionary to tune the behavior.
+
+Expenses already stored keep their category; changing the mapping only affects
+new entries.
+
+### Monthly reports
+
+`reports.py` builds a PNG chart with matplotlib. `/report` sends it on demand;
+the bot also sends the previous month's chart to every allowed user on the 1st
+of the month at 09:00 `Europe/Rome`. The scheduled job needs the `job-queue`
+extra, which is included in `requirements.txt`.
 
 ### Sharing the bot
 
