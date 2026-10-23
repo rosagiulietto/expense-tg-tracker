@@ -102,15 +102,28 @@ The following assumes Debian/Ubuntu and installs the app in
 sudo apt update
 sudo apt install -y python3 python3-venv sqlite3 tzdata git
 
-sudo useradd --system --create-home \
-    --home-dir /opt/expense-tg-tracker \
-    --shell /usr/sbin/nologin telegrambot
+# Dedicated system user (default home: /home/telegrambot)
+sudo useradd --system --shell /usr/sbin/nologin telegrambot
+
+# App directory, separate from the user's home
+sudo mkdir -p /opt/expense-tg-tracker
+sudo chown telegrambot:telegrambot /opt/expense-tg-tracker
 ```
 
 ### 2. Install the application
 
 ```bash
-sudo -u telegrambot git clone <your-repo-url> /opt/expense-tg-tracker
+# Create a read-only deploy key for the telegrambot user
+sudo -u telegrambot ssh-keygen -t ed25519 -N "" -f /home/telegrambot/.ssh/id_ed25519
+sudo -u telegrambot ssh-keyscan github.com >> /home/telegrambot/.ssh/known_hosts
+sudo cat /home/telegrambot/.ssh/id_ed25519.pub
+```
+
+Add the printed public key on GitHub: repository → **Settings → Deploy keys →
+Add deploy key** (read-only access is enough).
+
+```bash
+sudo -u telegrambot git clone git@github.com:rosagiulietto/expense-tg-tracker.git /opt/expense-tg-tracker
 cd /opt/expense-tg-tracker
 
 sudo -u telegrambot python3 -m venv .venv
