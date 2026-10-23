@@ -2,7 +2,7 @@
 Telegram Expense Tracker Bot -Bot Core Logic & Telegram Handlers.
 
 - Authentication: only the Telegram user id(s) in TELEGRAM_USER_ID (env) may interact.
-- Commands: /start, /summary, /last [n], /delete [id], /export, /report
+- Commands: /start, /summary, /today, /week, /last [n], /undo, /delete [id], /export, /report
 - Message handler: parses natural text like "Coffee 3.50" and stores the expense.
 - Phase 4: keyword auto-categorization, CSV export, monthly chart + scheduled report.
 """
@@ -17,7 +17,7 @@ from calendar import month_name
 from datetime import datetime, time as dt_time, timedelta
 
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -49,7 +49,7 @@ CATEGORY_KEYWORDS = {
         "aldi", "carrefour", "pasta", "pane", "latte", "frutta", "verdura",
         "spesa", "macelleria", "pescheria",
     ),
-    "Alcohol ": (
+    "Alcohol": (
         "birra", "vino", "drink",
     ),
     "Food": (
@@ -97,28 +97,6 @@ def authorized(update: Update) -> bool:
     return user_id in ALLOWED_USER_IDS
 
 
-def parse_expense(text: str) -> tuple[str, float] | None:
-    """
-    Parse a message like "Coffee 3.50", "3.50 Coffee" or "Milk 2 liters 3.50" into (item, amount).
-    Returns None if no valid amount is found.
-    """
-    text = text.strip()
-    match = _AMOUNT_AT_END.match(text) or _AMOUNT_AT_START.match(text)
-    if not match:
-        return None
-
-    try:
-        amount = float(match.group("amount").replace(",", "."))
-    except ValueError:
-        return None
-
-    item = match.group("item").strip()
-    if not item:
-        return None
-
-    return item, amount
-
-
 def _format_timestamp(timestamp: str) -> str:
     """
     Render a stored UTC ISO timestamp in the local timezone.
@@ -145,6 +123,67 @@ def guess_category(item: str) -> str:
             if re.search(rf"\b{re.escape(keyword)}\b", text):
                 return category
     return DEFAULT_CATEGORY
+
+
+_KNOWN_CATEGORY_ALIASES = {
+    _normalize(name): name for name in (DEFAULT_CATEGORY, *CATEGORY_KEYWORDS)
+}
+_HASHTAG_AT_END = re.compile(r"\s+#(?P<category>\S+)\s*$")
+_LAST_WORD = re.compile(r"\s+(?P<word>\S+)\s*$")
+
+
+def _extract_manual_category(text: str) -> tuple[str, str | None]:
+    """
+    Extract an optional category at the end of the message:
+    "Coffee 3.50 #food", "Coffee 3.50 food" or "Coffee 3.50 #vacanze".
+    """
+    match = _HASHTAG_AT_END.search(text)
+    if match:
+        category = match.group("category").strip()[:40]
+        if category:
+            category = _KNOWN_CATEGORY_ALIASES.get(_normalize(category), category)
+            return text[: match.start()].strip(), category
+
+    match = _LAST_WORD.search(text)
+    if match:
+        category = _KNOWN_CATEGORY_ALIASES.get(_normalize(match.group("word")))
+        if category:
+            return text[: match.start()].strip(), category
+
+    return text, None
+
+
+def parse_expense_with_category(
+    text: str,
+) -> tuple[str, float, str | None] | None:
+    """
+    Parse a message into (item, amount, manual_category).
+    The category is None when it wasn't specified explicitly.
+    """
+    text, manual_category = _extract_manual_category(text.strip())
+    match = _AMOUNT_AT_END.match(text) or _AMOUNT_AT_START.match(text)
+    if not match:
+        return None
+
+    try:
+        amount = float(match.group("amount").replace(",", "."))
+    except ValueError:
+        return None
+
+    item = match.group("item").strip()
+    if not item:
+        return None
+
+    return item, amount, manual_category
+
+
+def parse_expense(text: str) -> tuple[str, float] | None:
+    """Backward-compatible parser returning only (item, amount)."""
+    parsed = parse_expense_with_category(text)
+    if parsed is None:
+        return None
+    item, amount, _ = parsed
+    return item, amount
 
 
 def _parse_month_arg(args: list[str]) -> tuple[int, int] | None:
@@ -179,10 +218,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "👋 <b>Welcome to your Expense Tracker!</b>\n\n"
         "Add an expense by sending a message like:\n"
         "    <code>Coffee 3.50</code>\n"
-        "    <code>Milk 2 liters 3.50</code>\n\n"
+        "    <code>Milk 2 liters 3.50</code>\n"
+        "Override the category with <code>#food</code>:\n"
+        "    <code>Coffee 3.50 #food</code>\n\n"
         "<b>Commands</b>\n"
         "<code>/summary</code> — this month's total &amp; category breakdown\n"
+        "<code>/today</code> — today's total\n"
+        "<code>/week</code> — this week's total\n"
         "<code>/last [n]</code> — view the last n transactions (default 5)\n"
+        "<code>/undo</code> — remove the last transaction\n"
         "<code>/delete [id]</code> — remove an entry by its database id\n"
         "<code>/export</code> — download all expenses as CSV\n"
         "<code>/report [YYYY-MM]</code> — spending chart for a month",
@@ -208,6 +252,46 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         lines.append("No expenses recorded this month yet.")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/today - total spending for today."""
+    if not authorized(update):
+        return
+    user_id = update.effective_user.id
+
+    now = datetime.now(db.LOCAL_TZ)
+    day = now.date()
+    total, count = db.period_summary(
+        user_id, day.isoformat(), (day + timedelta(days=1)).isoformat()
+    )
+    plural = "transaction" if count == 1 else "transactions"
+    await update.message.reply_text(
+        f"📅 <b>Today</b> ({day:%d %b %Y})\n"
+        f"Total: <b>{total:.2f}</b>\n"
+        f"{count} {plural}",
+        parse_mode="HTML",
+    )
+
+
+async def week(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/week - total spending for the current week (Monday to Sunday)."""
+    if not authorized(update):
+        return
+    user_id = update.effective_user.id
+
+    now = datetime.now(db.LOCAL_TZ)
+    start = now.date() - timedelta(days=now.weekday())
+    end = start + timedelta(days=7)
+    total, count = db.period_summary(user_id, start.isoformat(), end.isoformat())
+    last_day = end - timedelta(days=1)
+    plural = "transaction" if count == 1 else "transactions"
+    await update.message.reply_text(
+        f"🗓️ <b>This week</b> ({start:%d %b} – {last_day:%d %b %Y})\n"
+        f"Total: <b>{total:.2f}</b>\n"
+        f"{count} {plural}",
+        parse_mode="HTML",
+    )
 
 
 async def last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -239,6 +323,27 @@ async def last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"{row['item']} - {row['amount']:.2f} [{row['category']}]"
         )
     await update.message.reply_text("\n".join(lines))
+
+
+async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/undo - remove the most recent transaction."""
+    if not authorized(update):
+        return
+    user_id = update.effective_user.id
+
+    rows = db.get_last_expenses(1, user_id)
+    if not rows:
+        await update.message.reply_text("No expenses recorded yet.")
+        return
+
+    row = rows[0]
+    if db.delete_expense(row["id"], user_id):
+        await update.message.reply_text(
+            f"↩️ Removed #{row['id']}: {row['item']} - "
+            f"{row['amount']:.2f} [{row['category']}]"
+        )
+    else:
+        await update.message.reply_text("⚠️ Could not remove the last transaction.")
 
 
 async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -356,15 +461,15 @@ async def handle_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     user_id = update.effective_user.id
 
-    parsed = parse_expense(update.message.text)
+    parsed = parse_expense_with_category(update.message.text)
     if parsed is None:
         await update.message.reply_text(
             "❌ Couldn't parse that. Use the format:  <item> <amount>  e.g.  Coffee 3.50"
         )
         return
 
-    item, amount = parsed
-    category = guess_category(item)
+    item, amount, manual_category = parsed
+    category = manual_category or guess_category(item)
     expense_id = db.add_expense(item, amount, user_id, category=category)
 
     now = datetime.now(db.LOCAL_TZ)
@@ -387,17 +492,46 @@ async def unauthorized(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text("⛔ You are not authorized to use this bot.")
 
 
+BOT_COMMANDS = [
+    BotCommand("start", "Welcome & instructions"),
+    BotCommand("summary", "This month's total & categories"),
+    BotCommand("today", "Today's total"),
+    BotCommand("week", "This week's total"),
+    BotCommand("last", "Show recent transactions"),
+    BotCommand("undo", "Remove the last transaction"),
+    BotCommand("delete", "Delete an entry by id"),
+    BotCommand("export", "Download all expenses as CSV"),
+    BotCommand("report", "Monthly spending chart"),
+]
+
+
+async def post_init(application: Application) -> None:
+    """Register the command menu shown in Telegram's '/' button."""
+    try:
+        await application.bot.set_my_commands(BOT_COMMANDS)
+    except Exception:
+        logger.exception("Could not register the bot command menu")
+
+
 def main() -> None:
     if not BOT_TOKEN:
         raise SystemExit("BOT_TOKEN is not set. Copy .env.example to .env and configure it.")
     if not ALLOWED_USER_IDS:
         raise SystemExit("TELEGRAM_USER_ID is not set. Copy .env.example to .env and configure it.")
     db.init_db()
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(post_init)
+        .build()
+    )
     auth_filter = filters.User(user_id=list(ALLOWED_USER_IDS))
     app.add_handler(CommandHandler("start", start, filters=auth_filter))
     app.add_handler(CommandHandler("summary", summary, filters=auth_filter))
+    app.add_handler(CommandHandler("today", today, filters=auth_filter))
+    app.add_handler(CommandHandler("week", week, filters=auth_filter))
     app.add_handler(CommandHandler("last", last, filters=auth_filter))
+    app.add_handler(CommandHandler("undo", undo, filters=auth_filter))
     app.add_handler(CommandHandler("delete", delete, filters=auth_filter))
     app.add_handler(CommandHandler("export", export, filters=auth_filter))
     app.add_handler(CommandHandler("report", report, filters=auth_filter))

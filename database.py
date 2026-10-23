@@ -167,6 +167,28 @@ def daily_total(user_id: int, date: Optional[str] = None, db_path: str = DB_NAME
     return row["total"]
 
 
+def period_summary(
+    user_id: int,
+    start_date: str,
+    end_date: str,
+    db_path: str = DB_NAME,
+) -> Tuple[float, int]:
+    """
+    Return (total, count) for the local date range [start_date, end_date),
+    where both dates are YYYY-MM-DD in the local timezone.
+    """
+    start_utc, _ = _day_bounds_utc(date_type.fromisoformat(start_date))
+    end_utc, _ = _day_bounds_utc(date_type.fromisoformat(end_date))
+    conn = get_connection(db_path)
+    row = conn.execute(
+        "SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count "
+        "FROM expenses WHERE user_id = ? AND timestamp >= ? AND timestamp < ?",
+        (user_id, start_utc, end_utc),
+    ).fetchone()
+    conn.close()
+    return row["total"], row["count"]
+
+
 def monthly_summary(
     user_id: int,
     year: int,

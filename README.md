@@ -11,7 +11,7 @@ text messages. Data is stored locally in SQLite — no external cloud services.
 - Log an expense by sending a plain message: `Coffee 3.50`
 - Automatic category tagging from item keywords (e.g. `Uber → Transport`)
 - Per-user data: every expense is tied to the sender's Telegram user id
-- Commands: `/start`, `/summary`, `/last [n]`, `/delete [id]`, `/export`, `/report`
+- Commands: `/start`, `/summary`, `/today`, `/week`, `/last [n]`, `/undo`, `/delete [id]`, `/export`, `/report`
 - CSV export of all expenses, Excel-friendly
 - Monthly spending chart on demand and automatically on the 1st of each month
 - Day/month totals computed in the `Europe/Rome` timezone
@@ -79,8 +79,13 @@ python database.py
 | `Milk 2 liters 3.50` | Logs `Milk 2 liters` for `3.50` |
 | `3.50 Coffee` | Amount-first form is also accepted |
 | `Coffee 12,50` | Comma decimals are accepted |
+| `Coffee 3.50 #food` | Explicit category override (also `#vacanze` for custom ones) |
+| `Coffee 3.50 food` | Known category names work without `#` |
 | `/summary` | Current month total and per-category breakdown |
+| `/today` | Today's total and transaction count |
+| `/week` | Current week's total (Monday to Sunday) |
 | `/last 10` | Last 10 transactions |
+| `/undo` | Remove the most recent transaction |
 | `/delete 42` | Delete entry `#42` |
 | `/export` | Download all expenses as a CSV file |
 | `/report` | Chart of this month's spending by category |
@@ -92,10 +97,18 @@ the end of the message. Anything else in the middle is kept as the item name.
 ### Auto-categorization
 
 Categories are assigned from keywords in the item name. The rules live in
-`CATEGORY_KEYWORDS` in `bot.py` and cover `Groceries`, `Food`, `Transport`,
-`Bills`, `Health`, `Shopping` and `Entertainment`, falling back to `General`.
-Matching is case-insensitive and accent-insensitive (`Caffè` matches `caffe`).
-Add or edit keywords in that dictionary to tune the behavior.
+`CATEGORY_KEYWORDS` in `bot.py` and cover `Groceries`, `Food`, `Alcohol`,
+`Transport`, `Bills`, `Health`, `Shopping` and `Entertainment`, falling back to
+`General`. Matching is case-insensitive and accent-insensitive (`Caffè` matches
+`caffe`). Add or edit keywords in that dictionary to tune the behavior.
+
+You can override the automatic category by appending `#food` (any custom name
+is accepted) or a known category name to the message:
+
+```text
+Coffee 3.50 #food
+Coffee 3.50 food
+```
 
 Expenses already stored keep their category; changing the mapping only affects
 new entries.
