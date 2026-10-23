@@ -1,0 +1,22 @@
+[Unit]
+Description=Telegram Expense Tracker Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=telegrambot
+Group=telegrambot
+# Must match the directory containing bot.py, .env and expenses.db.
+WorkingDirectory=/opt/expense-tg-tracker
+ExecStart=/opt/expense-tg-tracker/.venv/bin/python /opt/expense-tg-tracker/bot.py
+Restart=on-failure
+RestartSec=5
+
+# Protect credentials (token in .env) and the database file.
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
