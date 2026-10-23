@@ -176,15 +176,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not authorized(update):
         return
     await update.message.reply_text(
-        "👋 Welcome to your Expense Tracker!\n\n"
-        "Log an expense by simply typing:\n"
-        "    <item> <amount>   e.g.  Coffee 3.50\n\n"
-        "Available commands:\n"
-        "/summary          - this month's total & category breakdown\n"
-        "/last [n]         - view the last n transactions (default 5)\n"
-        "/delete [id]      - remove an entry by its database id\n"
-        "/export           - download all expenses as CSV\n"
-        "/report [YYYY-MM] - chart for this month (or a specific one)"
+        "👋 <b>Welcome to your Expense Tracker!</b>\n\n"
+        "Add an expense by sending a message like:\n"
+        "    <code>Coffee 3.50</code>\n"
+        "    <code>Milk 2 liters 3.50</code>\n\n"
+        "<b>Commands</b>\n"
+        "<code>/summary</code> — this month's total &amp; category breakdown\n"
+        "<code>/last [n]</code> — view the last n transactions (default 5)\n"
+        "<code>/delete [id]</code> — remove an entry by its database id\n"
+        "<code>/export</code> — download all expenses as CSV\n"
+        "<code>/report [YYYY-MM]</code> — spending chart for a month",
+        parse_mode="HTML",
     )
 
 
